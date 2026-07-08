@@ -1,19 +1,19 @@
-# 📝 Word 表格批量工具 | Word Table Batch Tool
+# 📝 Word 表格批量工具 | Word & Excel Batch Tool
 
 批量替换和格式化 Word 文档中的表格内容，让繁琐的文档处理变得轻松高效！
 
-Batch replace and format table content in Word documents, making tedious document processing easy and efficient!
+Batch replace and format table content in Word/Excel documents, making tedious document processing easy and efficient!
 
 ---
 
 ## ✨ 功能 | Features
 
-- 🔄 **内容替换** - 批量替换表格中的指定文字（支持精确匹配和包含匹配）
-- 🎨 **格式刷** - 从模板文件复制表格格式到其他文件
+- 🔄 **内容替换** - 批量替换 Word 表格中的指定文字（支持精确匹配和包含匹配）
+- 🎨 **格式刷** - 从模板文件复制表格格式到其他文件（支持 Word 和 Excel）
 - 📋 **日志记录** - 详细记录每次操作，方便排查问题
 
-- 🔄 **Content Replacement** - Batch replace specified text in tables (supports exact and contains matching)
-- 🎨 **Format Brush** - Copy table format from template files to other files
+- 🔄 **Content Replacement** - Batch replace specified text in Word tables (supports exact and contains matching)
+- 🎨 **Format Brush** - Copy table format from template files (supports Word & Excel)
 - 📋 **Logging** - Detailed operation logs for easy troubleshooting
 
 ---
@@ -27,8 +27,9 @@ Batch replace and format table content in Word documents, making tedious documen
 Double-click `启动替换工具.bat` to run
 
 1. 在"查找"和"替换"输入框填写规则 | Enter find and replace rules
-2. 拖拽 Word 文件到窗口，或点击添加文件 | Drag Word files to window or click to add
-3. 点击"执行替换" | Click "Execute Replacement"
+2. 可设置"跳过"关键字，跳过标题不替换 | Set "Skip" keywords to skip headers
+3. 拖拽 Word 文件到窗口，或点击添加文件 | Drag Word files to window or click to add
+4. 点击"执行替换" | Click "Execute Replacement"
 
 ### 2. 🎨 格式刷工具 | Format Brush Tool
 
@@ -36,8 +37,8 @@ Double-click `启动替换工具.bat` to run
 
 Double-click `启动格式刷.bat` to run
 
-1. 选择一个格式正确的模板文件 | Select a template file with correct format
-2. 添加需要修改格式的目标文件 | Add target files that need format changes
+1. 选择一个格式正确的模板文件（.docx 或 .xlsx）| Select a template file (.docx or .xlsx)
+2. 添加需要修改格式的目标文件（同类型）| Add target files of the same type
 3. 点击"执行格式复制" | Click "Execute Format Copy"
 
 ---
@@ -50,7 +51,7 @@ Double-click `启动格式刷.bat` to run
 
 - 🔍 **Contains Matching** - Replace if cell content contains the search text
 - 🛡️ **Auto Exclude Headers** - Long text (>50 chars) auto-skip to avoid wrong replacements
-- ⏭️ **Skip Keywords** - Enter header keywords (comma-separated) to skip these headers from replacement
+- ⏭️ **Skip Keywords** - Enter header keywords (comma-separated) to skip these headers
 
 ---
 
@@ -59,7 +60,7 @@ Double-click `启动格式刷.bat` to run
 | 文件 | 说明 | Description |
 |------|------|-------------|
 | `word_replacer_tool.py` | 🔄 内容替换工具 | Content Replacement Tool |
-| `format_brush.py` | 🎨 格式刷工具 | Format Brush Tool |
+| `format_brush.py` | 🎨 格式刷工具（Word + Excel）| Format Brush Tool (Word + Excel) |
 | `logs/` | 📋 操作日志 | Operation Logs |
 
 ---
