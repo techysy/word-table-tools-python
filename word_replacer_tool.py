@@ -52,7 +52,14 @@ class WordReplacerTool:
         self.replace2_entry = ttk.Entry(group2, font=("Microsoft YaHei", 10))
         self.replace2_entry.pack(side=LEFT, fill=X, expand=True, padx=(5, 0))
         
-        ttk.Label(rules_frame, text="包含匹配：单元格内容包含查找文字即替换（自动排除表头等长文本），如「业主单位：」可匹配「业主单位：中国移动」",
+        # 跳过关键字
+        skip_frame = ttk.Frame(rules_frame)
+        skip_frame.pack(fill=X, pady=(8, 3))
+        ttk.Label(skip_frame, text="跳过:", font=("Microsoft YaHei", 10), width=6).pack(side=LEFT)
+        self.skip_entry = ttk.Entry(skip_frame, font=("Microsoft YaHei", 10))
+        self.skip_entry.pack(side=LEFT, fill=X, expand=True, padx=(5, 0))
+        
+        ttk.Label(rules_frame, text="包含匹配：单元格内容包含查找文字即替换 | 跳过：输入标题关键字（逗号分隔）可跳过这些标题不替换",
                  font=("Microsoft YaHei", 8), bootstyle="secondary").pack(anchor=W, pady=(5,0))
         
         # 文件列表
@@ -245,6 +252,10 @@ class WordReplacerTool:
         file_name = os.path.basename(file_path)
         self.log(f"开始处理: {file_name}")
         
+        skip_keywords = self.get_skip_keywords()
+        if skip_keywords:
+            self.log(f"跳过关键字: {skip_keywords}")
+        
         try:
             ns = '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'
             changes = 0
@@ -269,9 +280,14 @@ class WordReplacerTool:
                         if not cell_text.strip():
                             continue
                         
-                        # 检查匹配 - 包含匹配，但排除长文本（表头）
+                        # 检查是否应该跳过
+                        if self.should_skip(cell_text, skip_keywords):
+                            self.log_cell(file_name, t_idx, r_idx, c_idx, cell_text.strip(), "跳过-标题/长文本")
+                            continue
+                        
+                        # 检查匹配 - 包含匹配
                         for find_text, replace_text in replacements.items():
-                            if find_text.strip() in cell_text and len(cell_text.strip()) < 50:
+                            if find_text.strip() in cell_text:
                                 self.log_cell(file_name, t_idx, r_idx, c_idx, cell_text.strip(), "匹配成功", replace_text)
                                 # 只替换第一个段落的第一个t，其他不动
                                 if paragraphs:
@@ -292,8 +308,10 @@ class WordReplacerTool:
                 full_text = ''.join([t.text for t in t_list if t.text]).strip()
                 if not full_text:
                     continue
+                if self.should_skip(full_text, skip_keywords):
+                    continue
                 for find_text, replace_text in replacements.items():
-                    if find_text.strip() in full_text and len(full_text) < 50:
+                    if find_text.strip() in full_text:
                         self.log(f"  段落匹配: [{full_text[:60]}]")
                         t_list[0].text = replace_text
                         for t in t_list[1:]:
@@ -334,6 +352,21 @@ class WordReplacerTool:
         if find2:
             replacements[find2] = replace2
         return replacements
+    
+    def get_skip_keywords(self):
+        skip_text = self.skip_entry.get().strip()
+        if not skip_text:
+            return []
+        return [kw.strip() for kw in skip_text.split(',') if kw.strip()]
+    
+    def should_skip(self, cell_text, skip_keywords):
+        """检查是否应该跳过该单元格"""
+        if len(cell_text.strip()) >= 50:
+            return True
+        for keyword in skip_keywords:
+            if keyword in cell_text:
+                return True
+        return False
         
     def execute_replace(self):
         if not self.files:
@@ -344,15 +377,21 @@ class WordReplacerTool:
             messagebox.showwarning("提示", "请填写替换规则")
             return
             
+        skip_keywords = self.get_skip_keywords()
+        
         msg = f"对 {len(self.files)} 个文件执行替换：\n\n"
         for f, r in replacements.items():
             msg += f"「{f}」->「{r}」\n"
+        if skip_keywords:
+            msg += f"\n跳过关键字: {', '.join(skip_keywords)}\n"
         if not messagebox.askyesno("确认替换", msg):
             return
         
         self.log("=" * 60)
         self.log("开始批量替换")
         self.log(f"替换规则: {replacements}")
+        if skip_keywords:
+            self.log(f"跳过关键字: {skip_keywords}")
         self.log(f"文件数量: {len(self.files)}")
             
         success = 0
@@ -398,12 +437,18 @@ class WordReplacerTool:
         text = tk.Text(preview_frame, wrap=WORD, font=("Microsoft YaHei", 10), padx=10, pady=10)
         text.pack(fill=BOTH, expand=True)
         
+        skip_keywords = self.get_skip_keywords()
+        
         text.insert(END, "替换规则（包含匹配）\n")
         text.insert(END, "-" * 50 + "\n\n")
         for f, r in replacements.items():
             text.insert(END, f"查找: {f}\n")
             text.insert(END, f"替换: {r}\n\n")
-        text.insert(END, "-" * 50 + "\n\n")
+        if skip_keywords:
+            text.insert(END, f"跳过关键字: {', '.join(skip_keywords)}\n")
+            text.insert(END, "-" * 50 + "\n\n")
+        else:
+            text.insert(END, "-" * 50 + "\n\n")
         
         try:
             doc = Document(self.files[0])
@@ -426,28 +471,23 @@ class WordReplacerTool:
                             continue
                         # 显示内容
                         text.insert(END, f"  行{r_idx}列{c_idx}: {cell_text[:80]}\n", "dim")
-                        text.insert(END, f"    repr: {repr(cell_text[:100])}\n", "dim")
-                        # 检查匹配 - 包含匹配，排除长文本
-                        matched = False
-                        for f, r in replacements.items():
-                            if f.strip() in cell_text and len(cell_text.strip()) < 50:
-                                text.insert(END, f"  [匹配] -> {r}\n", "match")
-                                matched = True
-                                break
-                        if not matched:
-                            # 检查是否因为文本太长被排除（表头）
+                        # 检查是否跳过
+                        if self.should_skip(cell_text, skip_keywords):
+                            text.insert(END, f"  [跳过] 标题/长文本\n", "skip")
+                        else:
+                            # 检查匹配 - 包含匹配
+                            matched = False
                             for f, r in replacements.items():
-                                f_clean = f.strip()
-                                if f_clean in cell_text and len(cell_text.strip()) >= 50:
-                                    # 部分字符匹配，找差异点
-                                    for ci in range(min(len(f_clean), len(cell_text))):
-                                        if cell_text[ci] != f_clean[ci]:
-                                            text.insert(END, f"  [差异位置{ci}] 查找:'{f_clean[ci]}'(U+{ord(f_clean[ci]):04X}) vs 实际:'{cell_text[ci]}'(U+{ord(cell_text[ci]):04X})\n", "dim")
-                                            break
+                                if f.strip() in cell_text:
+                                    text.insert(END, f"  [匹配] -> {r}\n", "match")
+                                    matched = True
                                     break
+                            if not matched:
+                                text.insert(END, f"\n")
                         text.insert(END, "\n")
                 text.insert(END, "\n")
             text.tag_config("match", foreground="#dc3545", font=("Microsoft YaHei", 10, "bold"))
+            text.tag_config("skip", foreground="#6c757d", font=("Microsoft YaHei", 9, "italic"))
             text.tag_config("dim", foreground="#888888", font=("Consolas", 8))
         except Exception as e:
             text.insert(END, f"读取错误: {e}")
