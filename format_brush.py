@@ -276,42 +276,100 @@ class FormatBrushTool:
     # ========== Excel 格式处理 ==========
     def get_excel_formats(self, xlsx_path):
         ns = {'main': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'}
-        formats = {'styles': None, 'fonts': [], 'fills': [], 'borders': [], 'cellXfs': []}
+        formats = {
+            'styles_xml': None,
+            'numFmts': [],
+            'fonts': [],
+            'fills': [],
+            'borders': [],
+            'cellXfs': [],
+            'colWidths': [],
+            'rowHeights': []
+        }
         
         with zipfile.ZipFile(xlsx_path, 'r') as z:
+            # 提取样式
             if 'xl/styles.xml' in z.namelist():
                 styles_xml = z.read('xl/styles.xml')
                 styles_root = etree.fromstring(styles_xml)
-                formats['styles'] = styles_xml
+                formats['styles_xml'] = styles_xml
                 
-                # 提取字体
+                # 数字格式
+                numFmts = styles_root.find('.//main:numFmts', ns)
+                if numFmts is not None:
+                    for nf in numFmts.findall('main:numFmt', ns):
+                        formats['numFmts'].append(etree.tostring(nf))
+                
+                # 字体
                 for font in styles_root.findall('.//main:fonts/main:font', ns):
                     formats['fonts'].append(etree.tostring(font))
                 
-                # 提取填充
+                # 填充
                 for fill in styles_root.findall('.//main:fills/main:fill', ns):
                     formats['fills'].append(etree.tostring(fill))
                 
-                # 提取边框
+                # 边框
                 for border in styles_root.findall('.//main:borders/main:border', ns):
                     formats['borders'].append(etree.tostring(border))
                 
-                # 提取单元格格式
+                # 单元格格式
                 for xf in styles_root.findall('.//main:cellXfs/main:xf', ns):
                     formats['cellXfs'].append(etree.tostring(xf))
+            
+            # 提取每个 sheet 的列宽和行高
+            for sheet_name in z.namelist():
+                if sheet_name.startswith('xl/worksheets/sheet') and sheet_name.endswith('.xml'):
+                    sheet_xml = z.read(sheet_name)
+                    sheet_root = etree.fromstring(sheet_xml)
+                    
+                    # 列宽
+                    cols = sheet_root.find('.//main:cols', ns)
+                    if cols is not None:
+                        for col in cols.findall('main:col', ns):
+                            formats['colWidths'].append({
+                                'min': col.get('min'),
+                                'max': col.get('max'),
+                                'width': col.get('width'),
+                                'customWidth': col.get('customWidth')
+                            })
+                    
+                    # 行高
+                    for row in sheet_root.findall('.//main:sheetData/main:row', ns):
+                        ht = row.get('ht')
+                        if ht:
+                            formats['rowHeights'].append({
+                                'r': row.get('r'),
+                                'ht': ht
+                            })
         
         return formats
         
     def apply_excel_format(self, target_path, formats):
         ns = {'main': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'}
         
-        if formats['styles'] is None:
-            return None
+        if formats['styles_xml'] is None:
+            return None, None
+        
+        col_widths = None
+        row_heights = None
         
         with zipfile.ZipFile(target_path, 'r') as z:
+            # 处理样式
             if 'xl/styles.xml' in z.namelist():
                 target_styles_xml = z.read('xl/styles.xml')
                 target_root = etree.fromstring(target_styles_xml)
+                
+                # 替换数字格式
+                target_numFmts = target_root.find('.//main:numFmts', ns)
+                if target_numFmts is not None:
+                    for child in list(target_numFmts):
+                        target_numFmts.remove(child)
+                elif formats['numFmts']:
+                    target_numFmts = etree.SubElement(target_root.find('.//main:styleSheet', ns), '{http://schemas.openxmlformats.org/spreadsheetml/2006/main}numFmts')
+                
+                for nf_xml in formats['numFmts']:
+                    if target_numFmts is not None:
+                        target_numFmts.append(etree.fromstring(nf_xml))
                 
                 # 替换字体
                 target_fonts = target_root.find('.//main:fonts', ns)
@@ -345,9 +403,50 @@ class FormatBrushTool:
                     for xf_xml in formats['cellXfs']:
                         target_cellXfs.append(etree.fromstring(xf_xml))
                 
-                return etree.tostring(target_root, xml_declaration=True, encoding='UTF-8', standalone=True)
+                new_styles = etree.tostring(target_root, xml_declaration=True, encoding='UTF-8', standalone=True)
+            else:
+                new_styles = None
+            
+            # 处理列宽和行高
+            for sheet_name in z.namelist():
+                if sheet_name.startswith('xl/worksheets/sheet') and sheet_name.endswith('.xml'):
+                    sheet_xml = z.read(sheet_name)
+                    sheet_root = etree.fromstring(sheet_xml)
+                    
+                    # 应用列宽
+                    if formats['colWidths']:
+                        cols = sheet_root.find('.//main:cols', ns)
+                        if cols is not None:
+                            for child in list(cols):
+                                cols.remove(child)
+                        else:
+                            sheetData = sheet_root.find('.//main:sheetData', ns)
+                            if sheetData is not None:
+                                cols = etree.Element('{http://schemas.openxmlformats.org/spreadsheetml/2006/main}cols')
+                                sheetData.insert(0, cols)
+                        
+                        if cols is not None:
+                            for cw in formats['colWidths']:
+                                col_elem = etree.SubElement(cols, '{http://schemas.openxmlformats.org/spreadsheetml/2006/main}col')
+                                col_elem.set('min', cw['min'])
+                                col_elem.set('max', cw['max'])
+                                col_elem.set('width', cw['width'])
+                                if cw.get('customWidth'):
+                                    col_elem.set('customWidth', cw['customWidth'])
+                    
+                    # 应用行高
+                    if formats['rowHeights']:
+                        for rh in formats['rowHeights']:
+                            for row in sheet_root.findall('.//main:sheetData/main:row', ns):
+                                if row.get('r') == rh['r']:
+                                    row.set('ht', rh['ht'])
+                                    row.set('customHeight', '1')
+                                    break
+                    
+                    col_widths = etree.tostring(sheet_root, xml_declaration=True, encoding='UTF-8', standalone=True)
+                    row_heights = col_widths
         
-        return None
+        return new_styles, col_widths
         
     # ========== 主逻辑 ==========
     def execute(self):
@@ -395,7 +494,7 @@ class FormatBrushTool:
                     success += 1
                     
                 elif target_type == 'excel' and self.template_type == 'excel':
-                    new_styles = self.apply_excel_format(target, formats)
+                    new_styles, sheet_data = self.apply_excel_format(target, formats)
                     if new_styles:
                         temp = target + '.tmp'
                         with zipfile.ZipFile(target, 'r') as zin:
@@ -403,6 +502,8 @@ class FormatBrushTool:
                                 for item in zin.infolist():
                                     if item.filename == 'xl/styles.xml':
                                         zout.writestr(item, new_styles)
+                                    elif item.filename.startswith('xl/worksheets/sheet') and item.filename.endswith('.xml') and sheet_data:
+                                        zout.writestr(item, sheet_data)
                                     else:
                                         zout.writestr(item, zin.read(item.filename))
                         shutil.move(temp, target)
