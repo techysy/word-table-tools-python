@@ -12,19 +12,18 @@ from lxml import etree
 class FormatBrushTool:
     def __init__(self, root):
         self.root = root
-        self.root.title("Word 表格格式刷")
-        self.root.geometry("700x500")
-        self.root.minsize(600, 400)
+        self.root.title("文档/表格 格式刷")
+        self.root.geometry("750x550")
+        self.root.minsize(650, 450)
         
         self.style = ttk.Style("cosmo")
         
         main_frame = ttk.Frame(root, padding=15)
         main_frame.pack(fill=BOTH, expand=True)
         
-        # 标题
-        ttk.Label(main_frame, text="Word 表格格式刷", 
-                 font=("Microsoft YaHei", 18, "bold")).pack(pady=(0,10))
-        ttk.Label(main_frame, text="从模板文件复制表格格式到其他文件", 
+        ttk.Label(main_frame, text="文档/表格 格式刷", 
+                 font=("Microsoft YaHei", 18, "bold")).pack(pady=(0,5))
+        ttk.Label(main_frame, text="支持 Word (.docx) 和 Excel (.xlsx)", 
                  font=("Microsoft YaHei", 10), bootstyle="secondary").pack(pady=(0,10))
         
         # 模板文件
@@ -34,6 +33,7 @@ class FormatBrushTool:
         template_frame.pack(fill=X)
         
         self.template_var = tk.StringVar(value="未选择文件")
+        self.template_type = None
         ttk.Label(template_frame, textvariable=self.template_var, 
                  font=("Microsoft YaHei", 10), bootstyle="info").pack(side=LEFT, fill=X, expand=True)
         ttk.Button(template_frame, text="选择模板", command=self.select_template,
@@ -75,27 +75,50 @@ class FormatBrushTool:
         self.template_file = None
         self.target_files = []
         
+    def _get_file_type(self, path):
+        ext = os.path.splitext(path)[1].lower()
+        if ext == '.docx':
+            return 'word'
+        elif ext == '.xlsx':
+            return 'excel'
+        return None
+        
     def select_template(self):
-        file = filedialog.askopenfilename(filetypes=[("Word文件", "*.docx")])
+        file = filedialog.askopenfilename(filetypes=[
+            ("文档/表格", "*.docx *.xlsx"),
+            ("Word文件", "*.docx"),
+            ("Excel文件", "*.xlsx")
+        ])
         if file:
             self.template_file = file
-            self.template_var.set(os.path.basename(file))
+            self.template_type = self._get_file_type(file)
+            type_label = "Word" if self.template_type == 'word' else "Excel"
+            self.template_var.set(f"{os.path.basename(file)} [{type_label}]")
             
     def add_targets(self):
-        files = filedialog.askopenfilenames(filetypes=[("Word文件", "*.docx")])
+        files = filedialog.askopenfilenames(filetypes=[
+            ("文档/表格", "*.docx *.xlsx"),
+            ("Word文件", "*.docx"),
+            ("Excel文件", "*.xlsx")
+        ])
         for f in files:
             if f not in self.target_files:
                 self.target_files.append(f)
-                self.target_listbox.insert(END, os.path.basename(f))
+                ftype = self._get_file_type(f)
+                label = "W" if ftype == 'word' else "E"
+                self.target_listbox.insert(END, f"[{label}] {os.path.basename(f)}")
         self.count_var.set(f"共 {len(self.target_files)} 个文件")
         
     def add_folder(self):
         folder = filedialog.askdirectory()
         if folder:
-            for f in glob.glob(os.path.join(folder, "**/*.docx"), recursive=True):
-                if f not in self.target_files:
-                    self.target_files.append(f)
-                    self.target_listbox.insert(END, os.path.basename(f))
+            for ext in ['**/*.docx', '**/*.xlsx']:
+                for f in glob.glob(os.path.join(folder, ext), recursive=True):
+                    if f not in self.target_files:
+                        self.target_files.append(f)
+                        ftype = self._get_file_type(f)
+                        label = "W" if ftype == 'word' else "E"
+                        self.target_listbox.insert(END, f"[{label}] {os.path.basename(f)}")
             self.count_var.set(f"共 {len(self.target_files)} 个文件")
             
     def clear_targets(self):
@@ -103,8 +126,8 @@ class FormatBrushTool:
         self.target_listbox.delete(0, END)
         self.count_var.set("共 0 个文件")
         
-    def get_table_formats(self, docx_path):
-        """从模板文件提取所有表格的格式信息"""
+    # ========== Word 格式处理 ==========
+    def get_word_formats(self, docx_path):
         ns = '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'
         
         with zipfile.ZipFile(docx_path, 'r') as z:
@@ -116,21 +139,17 @@ class FormatBrushTool:
         for tbl in root.findall(f'.//{ns}tbl'):
             tbl_format = {'rows': []}
             
-            # 表格属性
             tbl_pr = tbl.find(f'{ns}tblPr')
             if tbl_pr is not None:
                 tbl_format['tblPr'] = etree.tostring(tbl_pr)
             
-            # 表格网格
             tbl_grid = tbl.find(f'{ns}tblGrid')
             if tbl_grid is not None:
                 tbl_format['tblGrid'] = etree.tostring(tbl_grid)
             
-            # 行和单元格
             for tr in tbl.findall(f'.//{ns}tr'):
                 row_format = {'cells': []}
                 
-                # 行属性
                 tr_pr = tr.find(f'{ns}trPr')
                 if tr_pr is not None:
                     row_format['trPr'] = etree.tostring(tr_pr)
@@ -138,12 +157,10 @@ class FormatBrushTool:
                 for tc in tr.findall(f'{ns}tc'):
                     cell_format = {}
                     
-                    # 单元格属性
                     tc_pr = tc.find(f'{ns}tcPr')
                     if tc_pr is not None:
                         cell_format['tcPr'] = etree.tostring(tc_pr)
                     
-                    # 单元格内容（保留格式信息）
                     paragraphs = tc.findall(f'.//{ns}p')
                     para_formats = []
                     for p in paragraphs:
@@ -152,7 +169,6 @@ class FormatBrushTool:
                         if p_pr is not None:
                             p_format['pPr'] = etree.tostring(p_pr)
                         
-                        # run格式
                         runs = p.findall(f'.//{ns}r')
                         run_formats = []
                         for r in runs:
@@ -171,8 +187,7 @@ class FormatBrushTool:
         
         return formats
         
-    def apply_format_to_file(self, target_path, formats):
-        """将格式应用到目标文件"""
+    def apply_word_format(self, target_path, formats):
         ns = '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'
         
         with zipfile.ZipFile(target_path, 'r') as z:
@@ -187,7 +202,6 @@ class FormatBrushTool:
             
             fmt = formats[i]
             
-            # 应用表格属性
             if 'tblPr' in fmt:
                 old_pr = tbl.find(f'{ns}tblPr')
                 if old_pr is not None:
@@ -195,7 +209,6 @@ class FormatBrushTool:
                 new_pr = etree.fromstring(fmt['tblPr'])
                 tbl.insert(0, new_pr)
             
-            # 应用网格
             if 'tblGrid' in fmt:
                 old_grid = tbl.find(f'{ns}tblGrid')
                 if old_grid is not None:
@@ -207,7 +220,6 @@ class FormatBrushTool:
                 else:
                     tbl.insert(0, new_grid)
             
-            # 应用行和单元格格式
             target_rows = tbl.findall(f'.//{ns}tr')
             for r_idx, tr in enumerate(target_rows):
                 if r_idx >= len(fmt['rows']):
@@ -215,7 +227,6 @@ class FormatBrushTool:
                 
                 row_fmt = fmt['rows'][r_idx]
                 
-                # 行属性
                 if 'trPr' in row_fmt:
                     old_tr_pr = tr.find(f'{ns}trPr')
                     if old_tr_pr is not None:
@@ -223,7 +234,6 @@ class FormatBrushTool:
                     new_tr_pr = etree.fromstring(row_fmt['trPr'])
                     tr.insert(0, new_tr_pr)
                 
-                # 单元格格式
                 target_cells = tr.findall(f'{ns}tc')
                 for c_idx, tc in enumerate(target_cells):
                     if c_idx >= len(row_fmt['cells']):
@@ -231,7 +241,6 @@ class FormatBrushTool:
                     
                     cell_fmt = row_fmt['cells'][c_idx]
                     
-                    # 单元格属性
                     if 'tcPr' in cell_fmt:
                         old_tc_pr = tc.find(f'{ns}tcPr')
                         if old_tc_pr is not None:
@@ -239,7 +248,6 @@ class FormatBrushTool:
                         new_tc_pr = etree.fromstring(cell_fmt['tcPr'])
                         tc.insert(0, new_tc_pr)
                     
-                    # 段落格式
                     target_paras = tc.findall(f'.//{ns}p')
                     for p_idx, p in enumerate(target_paras):
                         if p_idx >= len(cell_fmt['paragraphs']):
@@ -254,7 +262,6 @@ class FormatBrushTool:
                             new_p_pr = etree.fromstring(p_fmt['pPr'])
                             p.insert(0, new_p_pr)
                         
-                        # run格式
                         target_runs = p.findall(f'.//{ns}r')
                         for r_idx2, r in enumerate(target_runs):
                             if r_idx2 < len(p_fmt.get('rPrs', [])):
@@ -266,6 +273,83 @@ class FormatBrushTool:
         
         return etree.tostring(root, xml_declaration=True, encoding='UTF-8', standalone=True)
         
+    # ========== Excel 格式处理 ==========
+    def get_excel_formats(self, xlsx_path):
+        ns = {'main': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'}
+        formats = {'styles': None, 'fonts': [], 'fills': [], 'borders': [], 'cellXfs': []}
+        
+        with zipfile.ZipFile(xlsx_path, 'r') as z:
+            if 'xl/styles.xml' in z.namelist():
+                styles_xml = z.read('xl/styles.xml')
+                styles_root = etree.fromstring(styles_xml)
+                formats['styles'] = styles_xml
+                
+                # 提取字体
+                for font in styles_root.findall('.//main:fonts/main:font', ns):
+                    formats['fonts'].append(etree.tostring(font))
+                
+                # 提取填充
+                for fill in styles_root.findall('.//main:fills/main:fill', ns):
+                    formats['fills'].append(etree.tostring(fill))
+                
+                # 提取边框
+                for border in styles_root.findall('.//main:borders/main:border', ns):
+                    formats['borders'].append(etree.tostring(border))
+                
+                # 提取单元格格式
+                for xf in styles_root.findall('.//main:cellXfs/main:xf', ns):
+                    formats['cellXfs'].append(etree.tostring(xf))
+        
+        return formats
+        
+    def apply_excel_format(self, target_path, formats):
+        ns = {'main': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'}
+        
+        if formats['styles'] is None:
+            return None
+        
+        with zipfile.ZipFile(target_path, 'r') as z:
+            if 'xl/styles.xml' in z.namelist():
+                target_styles_xml = z.read('xl/styles.xml')
+                target_root = etree.fromstring(target_styles_xml)
+                
+                # 替换字体
+                target_fonts = target_root.find('.//main:fonts', ns)
+                if target_fonts is not None:
+                    for child in list(target_fonts):
+                        target_fonts.remove(child)
+                    for font_xml in formats['fonts']:
+                        target_fonts.append(etree.fromstring(font_xml))
+                
+                # 替换填充
+                target_fills = target_root.find('.//main:fills', ns)
+                if target_fills is not None:
+                    for child in list(target_fills):
+                        target_fills.remove(child)
+                    for fill_xml in formats['fills']:
+                        target_fills.append(etree.fromstring(fill_xml))
+                
+                # 替换边框
+                target_borders = target_root.find('.//main:borders', ns)
+                if target_borders is not None:
+                    for child in list(target_borders):
+                        target_borders.remove(child)
+                    for border_xml in formats['borders']:
+                        target_borders.append(etree.fromstring(border_xml))
+                
+                # 替换单元格格式
+                target_cellXfs = target_root.find('.//main:cellXfs', ns)
+                if target_cellXfs is not None:
+                    for child in list(target_cellXfs):
+                        target_cellXfs.remove(child)
+                    for xf_xml in formats['cellXfs']:
+                        target_cellXfs.append(etree.fromstring(xf_xml))
+                
+                return etree.tostring(target_root, xml_declaration=True, encoding='UTF-8', standalone=True)
+        
+        return None
+        
+    # ========== 主逻辑 ==========
     def execute(self):
         if not self.template_file:
             messagebox.showwarning("提示", "请先选择模板文件")
@@ -281,7 +365,11 @@ class FormatBrushTool:
         self.status_var.set("提取模板格式...")
         self.root.update()
         
-        formats = self.get_table_formats(self.template_file)
+        # 根据模板类型提取格式
+        if self.template_type == 'word':
+            formats = self.get_word_formats(self.template_file)
+        else:
+            formats = self.get_excel_formats(self.template_file)
         
         success = 0
         fail = 0
@@ -290,19 +378,41 @@ class FormatBrushTool:
             self.status_var.set(f"处理 {i+1}/{len(self.target_files)}")
             self.root.update()
             
+            target_type = self._get_file_type(target)
+            
             try:
-                new_xml = self.apply_format_to_file(target, formats)
-                
-                temp = target + '.tmp'
-                with zipfile.ZipFile(target, 'r') as zin:
-                    with zipfile.ZipFile(temp, 'w', zipfile.ZIP_DEFLATED) as zout:
-                        for item in zin.infolist():
-                            if item.filename == 'word/document.xml':
-                                zout.writestr(item, new_xml)
-                            else:
-                                zout.writestr(item, zin.read(item.filename))
-                shutil.move(temp, target)
-                success += 1
+                if target_type == 'word' and self.template_type == 'word':
+                    new_xml = self.apply_word_format(target, formats)
+                    temp = target + '.tmp'
+                    with zipfile.ZipFile(target, 'r') as zin:
+                        with zipfile.ZipFile(temp, 'w', zipfile.ZIP_DEFLATED) as zout:
+                            for item in zin.infolist():
+                                if item.filename == 'word/document.xml':
+                                    zout.writestr(item, new_xml)
+                                else:
+                                    zout.writestr(item, zin.read(item.filename))
+                    shutil.move(temp, target)
+                    success += 1
+                    
+                elif target_type == 'excel' and self.template_type == 'excel':
+                    new_styles = self.apply_excel_format(target, formats)
+                    if new_styles:
+                        temp = target + '.tmp'
+                        with zipfile.ZipFile(target, 'r') as zin:
+                            with zipfile.ZipFile(temp, 'w', zipfile.ZIP_DEFLATED) as zout:
+                                for item in zin.infolist():
+                                    if item.filename == 'xl/styles.xml':
+                                        zout.writestr(item, new_styles)
+                                    else:
+                                        zout.writestr(item, zin.read(item.filename))
+                        shutil.move(temp, target)
+                        success += 1
+                    else:
+                        fail += 1
+                        
+                else:
+                    fail += 1
+                    
             except Exception as e:
                 print(f"处理 {target} 出错: {e}")
                 fail += 1
@@ -311,7 +421,7 @@ class FormatBrushTool:
         messagebox.showinfo("完成", f"格式复制完成\n\n成功: {success}\n失败: {fail}")
 
 def main():
-    root = ttk.Window(title="Word 表格格式刷", themename="cosmo", size=(700, 500))
+    root = ttk.Window(title="文档/表格 格式刷", themename="cosmo", size=(750, 550))
     app = FormatBrushTool(root)
     root.mainloop()
 
