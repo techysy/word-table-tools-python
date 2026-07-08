@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs (保留示例，排除当天日志)
+logs/replace_*.log
+!logs/example.log
+
+# Temp files
+*.tmp
+*.bak
+~$*
+
+# OS
+.DS_Store
+Thumbs.db
